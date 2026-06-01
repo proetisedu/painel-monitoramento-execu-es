@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PROETI SEDU - Painel Gerencial</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+:root {
+    --primary:#0056b3;
+    --success:#28a745;
+    --danger:#dc3545;
+    --warning:#ffc107;
+    --bg:#f4f6f9;
+}
+
+body{font-family:Segoe UI;background:var(--bg);margin:0;padding:20px;}
+
+header{
+    background:linear-gradient(135deg,#2c3e50,#003d82);
+    color:white;
+    padding:20px;
+    border-radius:10px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+}
+
+.btn{padding:10px 15px;border:none;border-radius:5px;cursor:pointer}
+.btn-primary{background:var(--primary);color:#fff}
+
+.dashboard-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+    gap:15px;
+    margin-top:20px;
+}
+
+.card{
+    background:#fff;
+    padding:15px;
+    border-radius:8px;
+    border-left:5px solid var(--primary);
+}
+
+.card.success{border-left-color:var(--success)}
+.card.danger{border-left-color:var(--danger)}
+.card.warning{border-left-color:var(--warning)}
+
+.card-title{font-size:11px;color:#666;font-weight:bold}
+.card-value{font-size:20px;font-weight:bold;margin-top:5px}
+
+.filter-section{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+    gap:10px;
+    background:#fff;
+    padding:15px;
+    border-radius:8px;
+    margin-top:20px;
+}
+
+select{
+    padding:10px;
+    border:1px solid #ddd;
+    border-radius:5px;
+}
+
+.tabs{
+    display:flex;
+    gap:10px;
+    margin-top:20px;
+}
+
+.tab{
+    padding:10px 15px;
+    background:#ddd;
+    border:none;
+    cursor:pointer;
+    border-radius:5px;
+}
+
+.tab.active{background:var(--primary);color:#fff}
+
+table{
+    width:100%;
+    border-collapse:collapse;
+    background:#fff;
+    margin-top:20px;
+}
+
+th,td{
+    padding:10px;
+    border-bottom:1px solid #eee;
+    font-size:13px;
+}
+
+th{background:#f8fafc}
+
+.badge{padding:4px 8px;border-radius:5px;font-size:11px}
+.enviado{background:#def7ec;color:#03543f}
+.pendente{background:#fde8e8;color:#9b1c1c}
+
+canvas{
+    background:#fff;
+    border-radius:8px;
+    margin-top:20px;
+    padding:10px;
+}
+</style>
+</head>
+
+<body>
+
+<header>
+<div>
+<h2>PROETI - Painel Gerencial</h2>
+<small>Consolidação financeira e execução</small>
+</div>
+<button class="btn btn-primary" onclick="exportar()">Exportar</button>
+</header>
+
+<!-- DASHBOARD -->
+<div class="dashboard-grid">
+<div class="card"><div class="card-title">Registros</div><div class="card-value" id="totalReg">0</div></div>
+<div class="card success"><div class="card-title">Enviados</div><div class="card-value" id="enviados">0</div></div>
+<div class="card danger"><div class="card-title">Pendentes</div><div class="card-value" id="pendentes">0</div></div>
+<div class="card warning"><div class="card-title">Repasse</div><div class="card-value" id="repasse">0</div></div>
+<div class="card"><div class="card-title">Executado</div><div class="card-value" id="exec">0</div></div>
+<div class="card"><div class="card-title">Saldo</div><div class="card-value" id="saldo">0</div></div>
+</div>
+
+<!-- FILTROS -->
+<div class="filter-section">
+<select id="f_edital" onchange="filtrar()"><option value="">Edital</option></select>
+<select id="f_municipio" onchange="filtrar()"><option value="">Município</option></select>
+<select id="f_status" onchange="filtrar()">
+<option value="">Status</option>
+<option>ENVIADO</option>
+<option>PENDENTE</option>
+</select>
+</div>
+
+<!-- MENU -->
+<div class="tabs">
+<button class="tab active" onclick="mostrar('tabela')">Tabela</button>
+<button class="tab" onclick="mostrar('ranking')">Ranking</button>
+<button class="tab" onclick="mostrar('grafico')">Evolução</button>
+</div>
+
+<div id="loading">Carregando...</div>
+
+<!-- TABELA -->
+<div id="view_tabela">
+<table>
+<thead>
+<tr>
+<th>Município</th>
+<th>Edital</th>
+<th>Repasse</th>
+<th>Executado</th>
+<th>Saldo</th>
+<th>% Execução</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody id="tbody"></tbody>
+</table>
+</div>
+
+<!-- RANKING -->
+<div id="view_ranking" style="display:none;">
+<table>
+<thead>
+<tr><th>Ranking</th><th>Município</th><th>% Execução</th></tr>
+</thead>
+<tbody id="tbody_ranking"></tbody>
+</table>
+</div>
+
+<!-- GRÁFICO -->
+<div id="view_grafico" style="display:none;">
+<canvas id="grafico"></canvas>
+</div>
+
+<script>
+
+const URL="https://script.google.com/macros/s/AKfycbx7NtMqiZ7lZA5nSgekBo8IaOWFHxI213bCRVJxh6rVrsGFKN9xZWvzVaFQi3H1BoxN/exec";
+
+let dados=[],filtrados=[];
+let chart=null;
+
+window.onload=()=>carregar();
+
+function carregar(){
+fetch(URL)
+.then(r=>r.json())
+.then(r=>{
+dados=r.dados;
+filtrados=dados;
+document.getElementById("loading").style.display="none";
+popular();
+render();
+});
+}
+
+function popular(){
+let e=[...new Set(dados.map(d=>d.edital))];
+let m=[...new Set(dados.map(d=>d.municipio))];
+
+e.forEach(x=>f_edital.innerHTML+=`<option>${x}</option>`);
+m.forEach(x=>f_municipio.innerHTML+=`<option>${x}</option>`);
+}
+
+function filtrar(){
+let e=f_edital.value;
+let m=f_municipio.value;
+let s=f_status.value;
+
+filtrados=dados.filter(d=>
+(!e||d.edital==e)&&
+(!m||d.municipio==m)&&
+(!s||d.status==s)
+);
+
+render();
+}
+
+function render(){
+
+let tb=document.getElementById("tbody");
+tb.innerHTML="";
+
+let rep=0,ex=0,sa=0,en=0,pe=0;
+
+filtrados.forEach(d=>{
+
+let r=+d.repassado||0;
+let e2=+d.executado||0;
+let s=+d.saldoAtual||0;
+
+rep+=r;ex+=e2;sa+=s;
+
+d.status=="ENVIADO"?en++:pe++;
+
+let pct=r?((e2/r)*100).toFixed(1):0;
+
+tb.innerHTML+=`
+<tr>
+<td>${d.municipio}</td>
+<td>${d.edital}</td>
+<td>R$ ${r.toLocaleString("pt-BR")}</td>
+<td>R$ ${e2.toLocaleString("pt-BR")}</td>
+<td>R$ ${s.toLocaleString("pt-BR")}</td>
+<td>${pct}%</td>
+<td><span class="badge ${d.status=="ENVIADO"?"enviado":"pendente"}">${d.status}</span></td>
+</tr>`;
+});
+
+totalReg.innerText=filtrados.length;
+enviados.innerText=en;
+pendentes.innerText=pe;
+repasse.innerText="R$ "+rep.toLocaleString("pt-BR");
+exec.innerText="R$ "+ex.toLocaleString("pt-BR");
+saldo.innerText="R$ "+sa.toLocaleString("pt-BR");
+
+renderRanking();
+renderGrafico();
+}
+
+/* RANKING */
+function renderRanking(){
+
+let rank={};
+
+filtrados.forEach(d=>{
+let r=+d.repassado||0;
+let e2=+d.executado||0;
+
+if(!rank[d.municipio])rank[d.municipio]={r:0,e:0};
+
+rank[d.municipio].r+=r;
+rank[d.municipio].e+=e2;
+});
+
+let arr=Object.keys(rank).map(m=>{
+let pct=rank[m].r?rank[m].e/rank[m].r*100:0;
+return{m,pct};
+}).sort((a,b)=>b.pct-a.pct);
+
+tbody_ranking.innerHTML="";
+
+arr.forEach((a,i)=>{
+tbody_ranking.innerHTML+=`
+<tr>
+<td>${i+1}</td>
+<td>${a.m}</td>
+<td>${a.pct.toFixed(1)}%</td>
+</tr>`;
+});
+}
+
+/* GRÁFICO DEFINITIVO */
+function renderGrafico(){
+
+const mesesFixos=[
+"Janeiro","Fevereiro","Março","Abril",
+"Maio","Junho","Julho","Agosto",
+"Setembro","Outubro","Novembro","Dezembro"
+];
+
+let dadosMes={};
+mesesFixos.forEach(m=>dadosMes[m]=0);
+
+filtrados.forEach(d=>{
+let m=(d.mes||"").trim();
+if(dadosMes.hasOwnProperty(m)){
+dadosMes[m]+=(+d.executado||0);
+}
+});
+
+let labels=mesesFixos;
+let valores=mesesFixos.map(m=>dadosMes[m]);
+
+let canvas=document.getElementById("grafico");
+if(!canvas) return;
+
+let ctx=canvas.getContext("2d");
+
+if(chart){
+chart.destroy();
+chart=null;
+}
+
+setTimeout(()=>{
+
+chart=new Chart(ctx,{
+type:"line",
+data:{
+labels:labels,
+datasets:[{
+label:"Executado por mês",
+data:valores,
+borderWidth:3,
+tension:0.4,
+fill:false
+}]
+},
+options:{
+responsive:true,
+maintainAspectRatio:false,
+scales:{
+y:{beginAtZero:true}
+}
+}
+});
+
+},150);
+}
+
+/* TROCA DE ABA */
+function mostrar(v){
+
+view_tabela.style.display=v=="tabela"?"block":"none";
+view_ranking.style.display=v=="ranking"?"block":"none";
+view_grafico.style.display=v=="grafico"?"block":"none";
+
+document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
+event.target.classList.add("active");
+
+if(v=="grafico"){
+setTimeout(renderGrafico,200);
+}
+}
+
+/* EXPORTAR */
+function exportar(){
+let ws=XLSX.utils.json_to_sheet(filtrados);
+let wb=XLSX.utils.book_new();
+XLSX.utils.book_append_sheet(wb,ws,"dados");
+XLSX.writeFile(wb,"proeti.xlsx");
+}
+
+</script>
+
+</body>
+</html>
