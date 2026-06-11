@@ -73,6 +73,7 @@ select{
     display:flex;
     gap:10px;
     margin-top:20px;
+    flex-wrap:wrap;
 }
 
 .tab{
@@ -110,6 +111,10 @@ canvas{
     margin-top:20px;
     padding:10px;
 }
+
+.table-wrap{
+    overflow-x:auto;
+}
 </style>
 </head>
 
@@ -123,7 +128,6 @@ canvas{
 <button class="btn btn-primary" onclick="exportar()">Exportar</button>
 </header>
 
-<!-- DASHBOARD -->
 <div class="dashboard-grid">
 <div class="card"><div class="card-title">Registros</div><div class="card-value" id="totalReg">0</div></div>
 <div class="card success"><div class="card-title">Enviados</div><div class="card-value" id="enviados">0</div></div>
@@ -133,7 +137,6 @@ canvas{
 <div class="card"><div class="card-title">Saldo</div><div class="card-value" id="saldo">0</div></div>
 </div>
 
-<!-- FILTROS -->
 <div class="filter-section">
 <select id="f_edital" onchange="filtrar()"><option value="">Edital</option></select>
 <select id="f_municipio" onchange="filtrar()"><option value="">Município</option></select>
@@ -144,17 +147,17 @@ canvas{
 </select>
 </div>
 
-<!-- MENU -->
 <div class="tabs">
 <button class="tab active" onclick="mostrar('tabela')">Tabela</button>
 <button class="tab" onclick="mostrar('ranking')">Ranking</button>
 <button class="tab" onclick="mostrar('grafico')">Evolução</button>
+<button class="tab" onclick="mostrar('detalhes')">Execuções Detalhadas</button>
 </div>
 
 <div id="loading">Carregando...</div>
 
-<!-- TABELA -->
 <div id="view_tabela">
+<div class="table-wrap">
 <table>
 <thead>
 <tr>
@@ -170,9 +173,10 @@ canvas{
 <tbody id="tbody"></tbody>
 </table>
 </div>
+</div>
 
-<!-- RANKING -->
 <div id="view_ranking" style="display:none;">
+<div class="table-wrap">
 <table>
 <thead>
 <tr><th>Ranking</th><th>Município</th><th>% Execução</th></tr>
@@ -180,17 +184,48 @@ canvas{
 <tbody id="tbody_ranking"></tbody>
 </table>
 </div>
+</div>
 
-<!-- GRÁFICO -->
 <div id="view_grafico" style="display:none;">
 <canvas id="grafico"></canvas>
 </div>
 
+<div id="view_detalhes" style="display:none;">
+
+<div class="filter-section">
+<select id="f_mes_detalhe" onchange="renderDetalhes()"><option value="">Mês</option></select>
+<select id="f_classificacao_detalhe" onchange="renderDetalhes()"><option value="">Classificação</option></select>
+</div>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>Município</th>
+<th>Edital</th>
+<th>Mês</th>
+<th>Fornecedor / Ocorrência</th>
+<th>CNPJ</th>
+<th>Tipo Doc</th>
+<th>Nº Doc</th>
+<th>Classificação</th>
+<th>Natureza</th>
+<th>Data Pgto</th>
+<th>Valor</th>
+</tr>
+</thead>
+<tbody id="tbody_detalhes"></tbody>
+</table>
+</div>
+
+</div>
+
 <script>
 
-const URL="https://script.google.com/macros/s/AKfycbx7NtMqiZ7lZA5nSgekBo8IaOWFHxI213bCRVJxh6rVrsGFKN9xZWvzVaFQi3H1BoxN/exec";
+const URL="https://script.google.com/macros/s/AKfycbwvhURBK8qmxHqBQ0Me6tePxIBhHaWcp6Ab1EadfUImxPp8Zj507J_ZeHvzUkD37xGg/exec";
 
 let dados=[],filtrados=[];
+let detalhes=[],detalhesFiltrados=[];
 let chart=null;
 
 window.onload=()=>carregar();
@@ -199,20 +234,34 @@ function carregar(){
 fetch(URL)
 .then(r=>r.json())
 .then(r=>{
-dados=r.dados;
+dados=r.dados || [];
+detalhes=r.detalhes || [];
 filtrados=dados;
+detalhesFiltrados=detalhes;
+
 document.getElementById("loading").style.display="none";
+
 popular();
+popularDetalhes();
 render();
+renderDetalhes();
 });
 }
 
 function popular(){
-let e=[...new Set(dados.map(d=>d.edital))];
-let m=[...new Set(dados.map(d=>d.municipio))];
+let e=[...new Set(dados.map(d=>d.edital).filter(Boolean))];
+let m=[...new Set(dados.map(d=>d.municipio).filter(Boolean))];
 
 e.forEach(x=>f_edital.innerHTML+=`<option>${x}</option>`);
 m.forEach(x=>f_municipio.innerHTML+=`<option>${x}</option>`);
+}
+
+function popularDetalhes(){
+let meses=[...new Set(detalhes.map(d=>d.mes).filter(Boolean))];
+let classificacoes=[...new Set(detalhes.map(d=>d.classificacao).filter(Boolean))];
+
+meses.forEach(m=>f_mes_detalhe.innerHTML+=`<option>${m}</option>`);
+classificacoes.forEach(c=>f_classificacao_detalhe.innerHTML+=`<option>${c}</option>`);
 }
 
 function filtrar(){
@@ -227,6 +276,7 @@ filtrados=dados.filter(d=>
 );
 
 render();
+renderDetalhes();
 }
 
 function render(){
@@ -271,7 +321,6 @@ renderRanking();
 renderGrafico();
 }
 
-/* RANKING */
 function renderRanking(){
 
 let rank={};
@@ -303,7 +352,6 @@ tbody_ranking.innerHTML+=`
 });
 }
 
-/* GRÁFICO DEFINITIVO */
 function renderGrafico(){
 
 const mesesFixos=[
@@ -361,12 +409,46 @@ y:{beginAtZero:true}
 },150);
 }
 
-/* TROCA DE ABA */
+function renderDetalhes(){
+
+let e=f_edital.value;
+let m=f_municipio.value;
+let mes=f_mes_detalhe.value;
+let classificacao=f_classificacao_detalhe.value;
+
+detalhesFiltrados=detalhes.filter(d=>
+(!e||d.edital==e)&&
+(!m||d.municipio==m)&&
+(!mes||d.mes==mes)&&
+(!classificacao||d.classificacao==classificacao)
+);
+
+tbody_detalhes.innerHTML="";
+
+detalhesFiltrados.forEach(d=>{
+tbody_detalhes.innerHTML+=`
+<tr>
+<td>${d.municipio || "-"}</td>
+<td>${d.edital || "-"}</td>
+<td>${d.mes || "-"}</td>
+<td>${d.fornecedor || "-"}</td>
+<td>${d.cnpj || "-"}</td>
+<td>${d.tipoDoc || "-"}</td>
+<td>${d.numDoc || "-"}</td>
+<td>${d.classificacao || "-"}</td>
+<td>${d.natureza || "-"}</td>
+<td>${d.dataPgto || "-"}</td>
+<td>R$ ${(d.valor||0).toLocaleString("pt-BR")}</td>
+</tr>`;
+});
+}
+
 function mostrar(v){
 
 view_tabela.style.display=v=="tabela"?"block":"none";
 view_ranking.style.display=v=="ranking"?"block":"none";
 view_grafico.style.display=v=="grafico"?"block":"none";
+view_detalhes.style.display=v=="detalhes"?"block":"none";
 
 document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
 event.target.classList.add("active");
@@ -376,9 +458,10 @@ setTimeout(renderGrafico,200);
 }
 }
 
-/* EXPORTAR */
 function exportar(){
-let ws=XLSX.utils.json_to_sheet(filtrados);
+let ws=XLSX.utils.json_to_sheet(
+view_detalhes.style.display=="block" ? detalhesFiltrados : filtrados
+);
 let wb=XLSX.utils.book_new();
 XLSX.utils.book_append_sheet(wb,ws,"dados");
 XLSX.writeFile(wb,"proeti.xlsx");
